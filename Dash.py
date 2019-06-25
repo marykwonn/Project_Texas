@@ -71,6 +71,7 @@ marker_colordict = {i: marker_colors[j % len(marker_colors)] for j, i in enumera
 data_traces = []
 
 
+# test
 def make_trace(well_name):
     well_coord = df.loc[df['NEW_WELL_NAME'] == well_name]  # filtered df
 
