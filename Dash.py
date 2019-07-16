@@ -10,7 +10,7 @@ import pyodbc
 # mapbox_access_token = 'pk.eyJ1Ijoia3dvbm0iLCJhIjoiY2p4MHk0NTlhMDF4bjN6bnp6bm8xcmswOSJ9.OANG2d0eU8VCjsShWpccgQ'
 # USE MARKDOWN FOR HTML
 
-# connect to DB
+# connect to DB server
 server = 'CKCWBDA2'
 database = 'BDA_RWI'
 username = 'BDA_READ'
@@ -35,48 +35,43 @@ SSMS_QUERY = pd.read_sql_query(
         [bot_perf],
         [frac_flag],
         [perf_status]
-        FROM [BDA_RWI].[dbo].[surveys_markers_perfs_v] where [WELL_COMMON_NAME] in ('A374','A547','A363','A533', 'A774', 'A403','A536', 'A369', 'A750', 'A401', 'A820', 'A540', 'J155', 'B750', 'J448', 'A360', 'A754', 'J331', 'J343')
+        FROM [BDA_RWI].[dbo].[surveys_markers_perfs_v] where [WELL_COMMON_NAME] in ('D716', 'D500', 'B623', 'D719', 'B605', 'B634', 'D547', 'D725')
         order by [MD] asc ;''', cnxn
 )
 
 
+def clean(query):
+    """
+    Clean, filter query
+    Create differentiated well names based on API suffix
 
-# function to create differentiate well names based on API suffix
-def new_well_name(df):
+    PARAMETERS:
+        INPUT: SQL QUERY
+        OUTPUT: DATAFRAME
+    """
+
+    query['mrkname'] = query['mrkname'].str.strip()
+    query['mrkname'] = query['mrkname'].replace('F0', 'FO')
     # drop rows with null API suffixes
-    df = df.dropna(subset=['API_SUFFIX'])
+    query = query.dropna(subset=['API_SUFFIX'])
     # add new column [WELL COMMON NAME+APISUFFIX]
-    df['NEW_WELL_NAME'] = df['WELL_COMMON_NAME'] + "_" + df['API_SUFFIX'].map(str)
+    query['NEW_WELL_NAME'] = query['WELL_COMMON_NAME'] + "_" + query['API_SUFFIX'].map(str)
 
-    return df
-
-df = new_well_name(SSMS_QUERY)
-
-df['mrkname'] = df['mrkname'].str.strip()
-df['mrkname'] = df['mrkname'].replace('F0', 'FO')
-unique_markers = df.dropna(subset=['mrkname'])
-unique_markers = unique_markers['mrkname'].unique()
-
-marker_all = ['A', 'AA', 'AB', 'AC', 'AD', 'AE', 'AI', 'AM', 'AO', 'AR', 'AU', 'AX', 'BA', 'F', 'FO',
-              'G', 'G4', 'G5', 'G6', 'H', 'H1', 'HX', 'HX1', 'HXA', 'HXB', 'HXC', 'HXO', 'J', 'K', 'M',
-              'M1', 'S', 'T', 'W', 'X', 'Y', 'Y4', 'Z']
-
-marker_colors = ['#1f77b4', '#ff7f0e', '#d62728', '#8c564b', '#2ca02c', '#a667bd', '#e377b5', '#7f7f7f', '#6522bd',
-                 '#17c5cf']
-# color index for markers
-marker_colordict = {i: marker_colors[j % len(marker_colors)] for j, i in enumerate(marker_all)}
-
-# data bracket for the all traces
-data_traces = []
-
+    return query
 
 def make_trace(well_name):
+    """
+    Plot all given well bore points
+    PARAMETERS:
+        INPUT: WELL NAME
+        OUTPUT: PLOTLY DATA TRACE FOR WELL
+    """
+
     well_coord = df.loc[df['NEW_WELL_NAME'] == well_name]  # filtered df
 
     x = well_coord['MAP_EASTING']
     y = well_coord['MAP_NORTHING']
     z = well_coord['TVDSS']
-    mrk = well_coord['mrkname']
 
     trace = go.Scatter3d(
         x=x, y=y, z=z,
@@ -89,8 +84,15 @@ def make_trace(well_name):
 
     return trace
 
-
 def make_marker_trace(well_name):
+    """
+    Plot color-coded markers of a given well name.
+    Relies on marker_colordict. Color dictionary for all markers.
+    PARAMETERS:
+        INPUT: WELL NAME
+        OUTPUT: PLOTLY DATA TRACE FOR WELL MARKERS
+    """
+
     well_coord = df.loc[df['NEW_WELL_NAME'] == well_name]  # filtered df
     well_coord = well_coord[pd.notnull(well_coord['mrkname'])]  # filter out null values for marker name
     grouped = well_coord.groupby('mrkname').first()
@@ -118,8 +120,14 @@ def make_marker_trace(well_name):
 
     return trace
 
-
 def make_perf_trace(well_name):
+    """
+    Plot perfs of a given well name. Provides perf position and status.
+    PARAMETERS:
+        INPUT: WELL NAME
+        OUTPUT: PLOTLY DATA TRACE FOR WELL PERFS
+    """
+
     well_coord = df.loc[df['NEW_WELL_NAME'] == well_name]  # filtered df
     well_coord = well_coord[pd.notnull(well_coord['perf_status'])]
     well_coord.loc[well_coord['mrkname'].isnull(), 'mrkname'] = 'N/A'
@@ -145,8 +153,13 @@ def make_perf_trace(well_name):
 
     return trace
 
-
 def make_frac_trace(well_name):
+    """
+    Plot fracs of a given well name. Indicates T/F for frac location.
+    PARAMETERS:
+        INPUT: WELL NAME
+        OUTPUT: PLOTLY DATA TRACE FOR WELL FRACS
+    """
     well_coord = df.loc[df['NEW_WELL_NAME'] == well_name]  # filtered df
     well_coord = well_coord.loc[(well_coord.frac_flag == 'F') | (well_coord.frac_flag == 'X')]
 
@@ -167,20 +180,77 @@ def make_frac_trace(well_name):
     return trace
 
 
-ff = pd.read_csv(r'C:\Users\kwonm\Documents\TEST\fault files\WILM.csv')
+def add_fault(fault):
+    data = pd.read_csv(r'Y:\Jensen\%s' % fault, sep=" ", header=None, skiprows=20)
 
-ff['Z'] *= -1
+    x = data[data.columns[0]].values
+    y = data[data.columns[1]].values
+    z = data[data.columns[2]].values * -1
 
-"""def add_fault():
-
-    trace = go.Surface (
-        x = ff['X'],
-        y = ff['Y'],
-        z = ff['Z'],
+    trace = go.Mesh3d(
+        x=x, y=y, z=z,
+        color='#00FFFF',
+        opacity=0.50,
+        name=fault
     )
 
-    return trace"""
+    return trace
 
+
+"""
+WILL USE AGAIN ONCE LAT/LONG ONLINE!!!!!!!!!!
+
+# def generate_well_map(df):
+#     grouped = df.groupby('WELL_COMMON_NAME')
+#     well_long = np.concatenate(grouped['LONGITUDE'].unique(), axis=0)
+#     well_lat = np.concatenate(grouped['LATITUDE'].unique(), axis=0)
+#     project_name = np.concatenate(grouped['PROJECT_NAME'].unique(), axis=0)
+#     well_index = grouped['PROJECT_NAME'].unique().index
+#
+#     data = [go.Scattermapbox(
+#         lat=well_lat,
+#         lon=well_long,
+#         mode="markers",
+#         marker=dict(size=9,
+#                     color='red'
+#                     ),
+#         text=project_name + '<br>' + well_index
+#         # can add name,
+#         # selected points = index
+#         # custom data)
+#     )]
+#
+#     layout = go.Layout(
+#         autosize=True,
+#         hovermode='closest',
+#         mapbox=go.layout.Mapbox(
+#             accesstoken=mapbox_access_token,
+#             bearing=0,
+#             pitch=0,
+#             zoom=15,
+#             center=go.layout.mapbox.Center(lat=33.76004, lon=-118.18054)),
+#         height=700
+#     )
+#
+#     return {'data': data, 'layout': layout}
+"""
+
+df = clean(SSMS_QUERY)
+
+unique_markers = df.dropna(subset=['mrkname'])
+unique_markers = unique_markers['mrkname'].unique()
+
+marker_all = ['A', 'AA', 'AB', 'AC', 'AD', 'AE', 'AI', 'AM', 'AO', 'AR', 'AU', 'AX', 'BA', 'F', 'FO',
+              'G', 'G4', 'G5', 'G6', 'H', 'H1', 'HX', 'HX1', 'HXA', 'HXB', 'HXC', 'HXO', 'J', 'K', 'M',
+              'M1', 'S', 'T', 'W', 'X', 'Y', 'Y4', 'Z']
+
+marker_colors = ['#1f77b4', '#ff7f0e', '#d62728', '#8c564b', '#2ca02c', '#a667bd', '#e377b5', '#7f7f7f', '#6522bd',
+                 '#17c5cf']
+# color index for markers
+marker_colordict = {i: marker_colors[j % len(marker_colors)] for j, i in enumerate(marker_all)}
+
+# data tuple for all traces
+data_traces = []
 
 for i in df['NEW_WELL_NAME'].unique():
     trace = make_trace(i)
@@ -197,51 +267,28 @@ for i in df['NEW_WELL_NAME'].unique():
     trace = make_frac_trace(i)
     data_traces.append(trace)
 
-# data_traces.append(add_fault())
+data_traces.append(add_fault('LBU FLT'))
 
-'''def generate_well_map(df):
-    grouped = df.groupby('WELL_COMMON_NAME')
-    well_long = np.concatenate(grouped['LONGITUDE'].unique(), axis=0)
-    well_lat = np.concatenate(grouped['LATITUDE'].unique(), axis=0)
-    project_name = np.concatenate(grouped['PROJECT_NAME'].unique(), axis=0)
-    well_index = grouped['PROJECT_NAME'].unique().index
-
-    data = [go.Scattermapbox(
-        lat=well_lat,
-        lon=well_long,
-        mode="markers",
-        marker=dict(size=9,
-                    color='red'
-                    ),
-        text=project_name + '<br>' + well_index
-        # can add name,
-        # selected points = index
-        # custom data)
-    )]
-
-    layout = go.Layout(
-        autosize=True,
-        hovermode='closest',
-        mapbox=go.layout.Mapbox(
-            accesstoken=mapbox_access_token,
-            bearing=0,
-            pitch=0,
-            zoom=15,
-            center=go.layout.mapbox.Center(lat=33.76004, lon=-118.18054)),
-        height=700
-    )
-
-    return {'data': data, 'layout': layout}'''
-
-
+"""
+START BODY CONTENT FOR DASH APP
+"""
 body = dbc.Container([
     dbc.Row(dbc.Col(html.H1('KD Tree Plot'))),
     dbc.Row([
         dbc.Col([
-            html.Label('Select Marker'),
-            dcc.Dropdown(id='multi-dropdown',
-                         options=[{'label': i, 'value': i} for i in unique_markers],
-                         placeholder='Filter by Marker Name', multi=True)
+            html.Label('Select Pool'),
+            dcc.Dropdown(id='region',
+                         # options=[{'label': i, 'value': i} for i in unique_markers],
+                         options=[
+                             {'label': 'LB 1', 'value': 'Region 1'},
+                             {'label': 'LB 2', 'value': 'Region 2'},
+                             {'label': 'LB 3', 'value': 'Region 3'}
+                         ],
+                         placeholder='Select Region')
+        ]),
+        dbc.Col([
+            html.Label('Select Sub-Region '),
+            dcc.Dropdown(id='')
         ])
     ]),
     dbc.Row([
@@ -250,29 +297,27 @@ body = dbc.Container([
             dcc.Graph(id='subsurface viz',
                       figure={'data': data_traces,
                               'layout': go.Layout(
-                                  # '#3d3b72'
                                   title="LBU -SAMPLE",
-                                  clickmode='event+select',
                                   height=1400,
                                   scene=dict(
                                       xaxis=dict(
                                           title='X (EASTING)',
-                                          # backgroundcolor='black',  # "rgb(200, 200, 230)",
-                                          # gridcolor="rgb(255, 255, 255)",
-                                          # showbackground=True,
-                                          #zerolinecolor="rgb(255, 255, 255)"
+                                          backgroundcolor='black',  # "rgb(200, 200, 230)",
+                                          gridcolor="rgb(255, 255, 255)",
+                                          showbackground=True,
+                                          zerolinecolor="rgb(255, 255, 255)"
                                       ),
                                       yaxis=dict(title='Y (NORTHING)',
-                                                 # backgroundcolor='black',  # "rgb(230, 200,230)",
-                                                 # gridcolor="rgb(255, 255, 255)",
-                                                 # showbackground=True,
-                                                 #zerolinecolor="rgb(255, 255, 255)"
+                                                 backgroundcolor='black',  # "rgb(230, 200,230)",
+                                                 gridcolor="rgb(255, 255, 255)",
+                                                 showbackground=True,
+                                                 zerolinecolor="rgb(255, 255, 255)"
                                                  ),
                                       zaxis=dict(title='SUBSURFACE Z',
-                                                 # backgroundcolor='black',  # "rgb(230, 230,200)",
-                                                 # gridcolor="rgb(255, 255, 255)",
-                                                 # showbackground=True,
-                                                 #zerolinecolor="rgb(255, 255, 255)"
+                                                 backgroundcolor='black',  # "rgb(230, 230,200)",
+                                                 gridcolor="rgb(255, 255, 255)",
+                                                 showbackground=True,
+                                                 zerolinecolor="rgb(255, 255, 255)"
                                                  )
                                   )
                               )
@@ -286,17 +331,7 @@ body = dbc.Container([
         ])
 
     ])
-    # dbc.Row([
-    #    dbc.Col([
-    #     dash_table.DataTable(
-    #    id= 'table',
-    # columns = [{
 
-    #    }]
-
-    #  )
-    #  ])
-   # ])
 ], fluid=True)
 
 app.layout = html.Div(body)
